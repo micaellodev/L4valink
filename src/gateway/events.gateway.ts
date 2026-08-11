@@ -5,17 +5,17 @@ import {
     OnGatewayConnection,
     OnGatewayDisconnect,
 } from '@nestjs/websockets';
+import { Logger, UseGuards } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
+import { WsJwtGuard } from '../auth/ws-jwt.guard';
+
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+    ? process.env.ALLOWED_ORIGINS.split(',')
+    : ['http://localhost:3000'];
 
 @WebSocketGateway({
     cors: {
-        origin: [
-            'http://localhost:3000',
-            'https://l4valink-production.up.railway.app',
-            'https://emilianipizzas.com',
-            'https://www.emilianipizzas.com',
-            'http://emilianipizzas.com',
-        ],
+        origin: allowedOrigins,
         credentials: true,
     },
 })
@@ -23,12 +23,14 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @WebSocketServer()
     server: Server;
 
+    private readonly logger = new Logger(EventsGateway.name);
+
     handleConnection(client: Socket) {
-        console.log(`Client connected: ${client.id}`);
+        this.logger.log(`Client connected: ${client.id}`);
     }
 
     handleDisconnect(client: Socket) {
-        console.log(`Client disconnected: ${client.id}`);
+        this.logger.log(`Client disconnected: ${client.id}`);
     }
 
     // Emit events to all clients
@@ -54,11 +56,13 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     // Listen for events from admin
     @SubscribeMessage('skip_song')
+    @UseGuards(WsJwtGuard)
     handleSkipSong(client: Socket, data: any) {
         this.server.emit('skip_song', data);
     }
 
     @SubscribeMessage('pause_song')
+    @UseGuards(WsJwtGuard)
     handlePauseSong(client: Socket, data: any) {
         this.server.emit('pause_song', data);
     }

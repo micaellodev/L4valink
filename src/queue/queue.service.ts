@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import { QueueStatus } from '@prisma/client';
 
@@ -8,6 +8,7 @@ import { EventsGateway } from '../gateway/events.gateway';
 export class QueueService {
     private timerEnabled = true;
     private autoplayEnabled = false;
+    private readonly logger = new Logger(QueueService.name);
 
     constructor(
         private prisma: PrismaService,
@@ -41,22 +42,23 @@ export class QueueService {
         requestedBy?: string;
         comments?: string;
     }) {
-        // Get max order in PENDING
-        const maxOrder = await this.prisma.queueItem.findFirst({
-            where: { status: 'PENDING' },
-            orderBy: { order: 'desc' },
-            select: { order: true },
-        });
+        return this.prisma.$transaction(async (tx) => {
+            const maxOrder = await tx.queueItem.findFirst({
+                where: { status: 'PENDING' },
+                orderBy: { order: 'desc' },
+                select: { order: true },
+            });
 
-        const nextOrder = (maxOrder?.order ?? 0) + 1;
+            const nextOrder = (maxOrder?.order ?? 0) + 1;
 
-        return this.prisma.queueItem.create({
-            data: {
-                ...data,
-                status: 'PENDING',
-                order: nextOrder,
-            },
-        });
+            return tx.queueItem.create({
+                data: {
+                    ...data,
+                    status: 'PENDING',
+                    order: nextOrder,
+                },
+            });
+        }, { isolationLevel: 'Serializable' });
     }
 
     async addDirect(data: {
@@ -66,46 +68,48 @@ export class QueueService {
         duration: string;
         addedBy: string;
     }) {
-        // Get max order in APPROVED
-        const maxOrder = await this.prisma.queueItem.findFirst({
-            where: { status: 'APPROVED' },
-            orderBy: { order: 'desc' },
-            select: { order: true },
-        });
+        return this.prisma.$transaction(async (tx) => {
+            const maxOrder = await tx.queueItem.findFirst({
+                where: { status: 'APPROVED' },
+                orderBy: { order: 'desc' },
+                select: { order: true },
+            });
 
-        const nextOrder = (maxOrder?.order ?? 0) + 1;
+            const nextOrder = (maxOrder?.order ?? 0) + 1;
 
-        return this.prisma.queueItem.create({
-            data: {
-                youtubeId: data.youtubeId,
-                title: data.title,
-                channelTitle: data.channelTitle,
-                duration: data.duration,
-                requestedByTable: 0, // Admin/System
-                requestedBy: data.addedBy,
-                status: 'APPROVED',
-                order: nextOrder,
-            },
-        });
+            return tx.queueItem.create({
+                data: {
+                    youtubeId: data.youtubeId,
+                    title: data.title,
+                    channelTitle: data.channelTitle,
+                    duration: data.duration,
+                    requestedByTable: 0, // Admin/System
+                    requestedBy: data.addedBy,
+                    status: 'APPROVED',
+                    order: nextOrder,
+                },
+            });
+        }, { isolationLevel: 'Serializable' });
     }
 
     async approveSong(id: string) {
-        // Get the highest order number in approved queue
-        const maxOrder = await this.prisma.queueItem.findFirst({
-            where: { status: 'APPROVED' },
-            orderBy: { order: 'desc' },
-            select: { order: true },
-        });
+        return this.prisma.$transaction(async (tx) => {
+            const maxOrder = await tx.queueItem.findFirst({
+                where: { status: 'APPROVED' },
+                orderBy: { order: 'desc' },
+                select: { order: true },
+            });
 
-        const nextOrder = (maxOrder?.order ?? 0) + 1;
+            const nextOrder = (maxOrder?.order ?? 0) + 1;
 
-        return this.prisma.queueItem.update({
-            where: { id },
-            data: {
-                status: 'APPROVED',
-                order: nextOrder,
-            },
-        });
+            return tx.queueItem.update({
+                where: { id },
+                data: {
+                    status: 'APPROVED',
+                    order: nextOrder,
+                },
+            });
+        }, { isolationLevel: 'Serializable' });
     }
 
     async rejectSong(id: string) {
@@ -210,15 +214,14 @@ export class QueueService {
     }
 
     async reorderQueue(items: { id: string; order: number }[]) {
-        // Update order for each item
-        const updates = items.map((item) =>
-            this.prisma.queueItem.update({
-                where: { id: item.id },
-                data: { order: item.order },
-            }),
+        await this.prisma.$transaction(
+            items.map((item) =>
+                this.prisma.queueItem.update({
+                    where: { id: item.id },
+                    data: { order: item.order },
+                }),
+            ),
         );
-
-        await Promise.all(updates);
         return { success: true };
     }
     async getStats() {
@@ -257,19 +260,15 @@ export class QueueService {
     // Table Session Management
 
     async joinTable(tableNumber: number, userName: string) {
-        console.log(`[DEBUG] joinTable called with table=${tableNumber}, user=${userName}`);
-
         // Check if session already exists
         const existingSession = await this.prisma.tableSession.findUnique({
             where: { tableNumber },
         });
 
         if (existingSession) {
-            console.log(`[DEBUG] Session already exists for table ${tableNumber}:`, existingSession);
             return existingSession;
         }
 
-        console.log(`[DEBUG] Creating new session...`);
         const session = await this.prisma.tableSession.create({
             data: {
                 tableNumber,
@@ -285,8 +284,6 @@ export class QueueService {
                 openedBy: 'Customer', // Default to Customer for now
             },
         });
-
-        console.log(`[DEBUG] Session created:`, session);
 
         this.eventsGateway.emitTablesUpdate();
         return session;
@@ -327,7 +324,7 @@ export class QueueService {
                 });
             }
         } catch (e) {
-            console.error('Error logging table close:', e);
+            this.logger.error('Error logging table close', e);
         }
 
         // Delete session
@@ -337,6 +334,14 @@ export class QueueService {
             });
         } catch (e) {
             // Ignore if already deleted
+        }
+
+        // Notify clients that this specific table was reset so they can
+        // immediately clear UI/state (for example, stored user name)
+        try {
+            this.eventsGateway.emitResetTable(tableNumber);
+        } catch (e) {
+            this.logger.error('Error emitting reset_table event', e);
         }
 
         this.eventsGateway.emitTablesUpdate();

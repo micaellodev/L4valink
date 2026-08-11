@@ -17,6 +17,7 @@ exports.YouTubeModule = YouTubeModule = __decorate([
     (0, common_1.Module)({
         controllers: [youtube_controller_1.YouTubeController],
         providers: [youtube_service_1.YouTubeService],
+        exports: [youtube_service_1.YouTubeService],
     })
 ], YouTubeModule);
 //# sourceMappingURL=youtube.module.js.map

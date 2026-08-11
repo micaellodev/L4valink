@@ -10,17 +10,18 @@ exports.QueueModule = void 0;
 const common_1 = require("@nestjs/common");
 const queue_service_1 = require("./queue.service");
 const queue_controller_1 = require("./queue.controller");
-const prisma_service_1 = require("../prisma.service");
 const events_gateway_1 = require("../gateway/events.gateway");
+const auth_module_1 = require("../auth/auth.module");
 const orders_module_1 = require("../orders/orders.module");
+const youtube_module_1 = require("../youtube/youtube.module");
 let QueueModule = class QueueModule {
 };
 exports.QueueModule = QueueModule;
 exports.QueueModule = QueueModule = __decorate([
     (0, common_1.Module)({
-        imports: [orders_module_1.OrdersModule],
+        imports: [orders_module_1.OrdersModule, youtube_module_1.YouTubeModule, auth_module_1.AuthModule],
         controllers: [queue_controller_1.QueueController],
-        providers: [queue_service_1.QueueService, prisma_service_1.PrismaService, events_gateway_1.EventsGateway],
+        providers: [queue_service_1.QueueService, events_gateway_1.EventsGateway],
         exports: [queue_service_1.QueueService],
     })
 ], QueueModule);

@@ -128,3 +128,95 @@ model DailyInventoryEntry {
   @@map("daily_inventory_entries")
 }
 
+// ─────────────────────────────────────────────
+//  MENU MODULE
+// ─────────────────────────────────────────────
+
+model MenuCategory {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  slug        String   @unique
+  description String?
+  order       Int      @default(0)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  items MenuItem[]
+
+  @@map("menu_categories")
+}
+
+model MenuItem {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  price       Float
+  imageUrl    String?  @map("image_url")
+  isActive    Boolean  @default(true) @map("is_active")
+  order       Int      @default(0)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  categoryId String
+  category   MenuCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  variants MenuItemVariant[]
+  promotions PromotionItem[]
+
+  @@index([categoryId])
+  @@map("menu_items")
+}
+
+model MenuItemVariant {
+  id          String   @id @default(cuid())
+  name        String
+  price       Float?
+  imageUrl    String?  @map("image_url")
+  order       Int      @default(0)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  menuItemId  String
+  menuItem    MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+
+  @@index([menuItemId])
+  @@map("menu_item_variants")
+}
+
+// ─────────────────────────────────────────────
+//  PROMOTIONS MODULE
+// ─────────────────────────────────────────────
+
+model Promotion {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  price       Float?
+  quantity    Int      @default(1) // cuántos items puede elegir el cliente
+  imageUrl    String?  @map("image_url")
+  isActive    Boolean  @default(true) @map("is_active")
+  order       Int      @default(0)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  items       PromotionItem[]
+
+  @@index([isActive])
+  @@map("promotions")
+}
+
+model PromotionItem {
+  id           String   @id @default(cuid())
+  promotionId  String   @map("promotion_id")
+  promotion    Promotion @relation(fields: [promotionId], references: [id], onDelete: Cascade)
+  menuItemId   String   @map("menu_item_id")
+  menuItem     MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@unique([promotionId, menuItemId])
+  @@index([promotionId])
+  @@index([menuItemId])
+  @@map("promotion_items")
+}
+

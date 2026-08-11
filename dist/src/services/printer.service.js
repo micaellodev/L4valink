@@ -58,9 +58,9 @@ let PrinterService = PrinterService_1 = class PrinterService {
         catch (error) {
             this.logger.error(`Failed to print order ${order.id}:`, error);
             if (process.env.NODE_ENV !== 'production') {
-                console.log('--- SIMULATED PRINT OUTPUT ---');
-                console.log(this.formatReceiptText(order, items));
-                console.log('------------------------------');
+                this.logger.debug('--- SIMULATED PRINT OUTPUT ---');
+                this.logger.debug(this.formatReceiptText(order, items));
+                this.logger.debug('------------------------------');
             }
         }
     }

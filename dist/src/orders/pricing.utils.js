@@ -2,75 +2,61 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.calculateOrderPrice = calculateOrderPrice;
 const CLASICOS = [
-    'Mojito',
-    'Chilcano',
-    'Laguna Azul',
-    'Orgasmo',
-    'Tinto de Verano',
-    'Piña Colada',
-    'Cuba Libre',
-    'Machupicchu',
+    'Mojito', 'Chilcano', 'Laguna Azul', 'Orgasmo',
+    'Tinto de Verano', 'Piña Colada', 'Cuba Libre', 'Machupicchu',
 ];
 const DE_AUTOR = [
-    'Margañaña',
-    'Biffer Pink',
-    'Tentacione Emiliani',
-    'Gaviota',
-    'Resina Sagrada',
-    'Espíritu Antiguo',
+    'Margañaña', 'Biffer Pink', 'Tentacione Emiliani',
+    'Gaviota', 'Resina Sagrada', 'Espíritu Antiguo',
 ];
-const CERVEZAS = [
-    'Pilsen',
-];
-const PRICES = {
-    CLASICOS: {
-        UNIT: 20,
-        PROMO: 35,
-    },
-    DE_AUTOR: {
-        UNIT: 25,
-        PROMO: 40,
-    },
-    CERVEZAS: {
-        UNIT: 10,
-    }
+const CERVEZAS = ['Pilsen'];
+const FALLBACK_PRICES = {
+    CLASICOS: 20,
+    DE_AUTOR: 25,
+    CERVEZAS: 10,
 };
-function getItemCategory(name) {
-    if (CLASICOS.includes(name))
-        return 'CLASICOS';
-    if (DE_AUTOR.includes(name))
-        return 'DE_AUTOR';
-    if (CERVEZAS.includes(name))
-        return 'CERVEZAS';
+function getFallbackPrice(name) {
+    const baseName = name.split(' -')[0].trim();
+    if (CLASICOS.includes(baseName))
+        return FALLBACK_PRICES.CLASICOS;
+    if (DE_AUTOR.includes(baseName))
+        return FALLBACK_PRICES.DE_AUTOR;
+    if (CERVEZAS.includes(baseName))
+        return FALLBACK_PRICES.CERVEZAS;
     return null;
 }
-function calculateCategoryPrice(quantity, unitPrice, promoPrice) {
-    if (!promoPrice) {
-        return quantity * unitPrice;
-    }
-    const promoSets = Math.floor(quantity / 2);
-    const remainingUnits = quantity % 2;
-    return (promoSets * promoPrice) + (remainingUnits * unitPrice);
-}
-function calculateOrderPrice(items) {
-    let clasicosTotal = 0;
-    let deAutorTotal = 0;
-    let cervezasTotal = 0;
+function calculateOrderPrice(items, menuPriceMap, promotionPriceMap) {
+    let total = 0;
     for (const item of items) {
-        const category = getItemCategory(item.name);
-        if (category === 'CLASICOS') {
-            clasicosTotal += item.quantity;
+        const name = item.name.trim();
+        const qty = item.quantity || 0;
+        if (promotionPriceMap) {
+            for (const [promoTitle, promoPrice] of Object.entries(promotionPriceMap)) {
+                if (name.startsWith(promoTitle + ' (') || name === promoTitle) {
+                    total += promoPrice * qty;
+                    break;
+                }
+            }
+            if (total > 0 && Object.keys(promotionPriceMap).some(k => name.startsWith(k))) {
+                continue;
+            }
         }
-        else if (category === 'DE_AUTOR') {
-            deAutorTotal += item.quantity;
+        if (menuPriceMap) {
+            if (menuPriceMap[name] !== undefined) {
+                total += menuPriceMap[name] * qty;
+                continue;
+            }
+            const baseName = name.split(' -')[0].trim();
+            if (menuPriceMap[baseName] !== undefined) {
+                total += menuPriceMap[baseName] * qty;
+                continue;
+            }
         }
-        else if (category === 'CERVEZAS') {
-            cervezasTotal += item.quantity;
+        const fallback = getFallbackPrice(name);
+        if (fallback !== null) {
+            total += fallback * qty;
         }
     }
-    const clasicosPrice = calculateCategoryPrice(clasicosTotal, PRICES.CLASICOS.UNIT, PRICES.CLASICOS.PROMO);
-    const deAutorPrice = calculateCategoryPrice(deAutorTotal, PRICES.DE_AUTOR.UNIT, PRICES.DE_AUTOR.PROMO);
-    const cervezasPrice = calculateCategoryPrice(cervezasTotal, PRICES.CERVEZAS.UNIT);
-    return clasicosPrice + deAutorPrice + cervezasPrice;
+    return total;
 }
 //# sourceMappingURL=pricing.utils.js.map

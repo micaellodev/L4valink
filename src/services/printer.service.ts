@@ -16,11 +16,11 @@ export class PrinterService {
             this.logger.log(`Order ${order.id} sent to printer successfully.`);
         } catch (error) {
             this.logger.error(`Failed to print order ${order.id}:`, error);
-            // Fallback: Log to console in development
+            // Fallback: Log simulated receipt in development
             if (process.env.NODE_ENV !== 'production') {
-                console.log('--- SIMULATED PRINT OUTPUT ---');
-                console.log(this.formatReceiptText(order, items));
-                console.log('------------------------------');
+                this.logger.debug('--- SIMULATED PRINT OUTPUT ---');
+                this.logger.debug(this.formatReceiptText(order, items));
+                this.logger.debug('------------------------------');
             }
         }
     }

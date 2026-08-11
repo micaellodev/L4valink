@@ -1,19 +1,42 @@
 import { NestFactory } from '@nestjs/core';
+import { ValidationPipe, Logger, HttpException } from '@nestjs/common';
+import { HttpAdapterHost } from '@nestjs/core';
+import helmet from 'helmet';
 import { AppModule } from './app.module';
+import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 
 async function bootstrap() {
     const app = await NestFactory.create(AppModule);
+    const logger = new Logger('Bootstrap');
 
-    // Enable CORS for frontend
-    // Enable CORS for frontendd
+    app.use(helmet());
+
+    const server = app.getHttpAdapter().getInstance();
+    if (typeof server.disable === 'function') {
+        server.disable('x-powered-by');
+    }
+
+    const allowedOrigins = process.env.ALLOWED_ORIGINS
+        ? process.env.ALLOWED_ORIGINS.split(',')
+        : ['http://localhost:3000'];
+
     app.enableCors({
-        origin: ['https://emilianipizzas.com', 'http://localhost:3000', 'https://bira-backend-production.up.railway.app','https://www.emilianipizzas.com', 'http://localhost:3001', 'https://l4valink.onrender.com'],
+        origin: allowedOrigins,
         methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
         credentials: true,
     });
 
+    app.useGlobalPipes(new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        transform: true,
+    }));
+
+    const httpAdapterHost = app.get(HttpAdapterHost);
+    app.useGlobalFilters(new AllExceptionsFilter(httpAdapterHost));
+
     const port = process.env.PORT || 3001;
     await app.listen(port);
-    console.log(`🚀 Backend running on https://l4valink-production.up.railway.app`);
+    logger.log(`🚀 Backend running on port ${port}`);
 }
 bootstrap();

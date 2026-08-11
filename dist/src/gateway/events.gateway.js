@@ -8,16 +8,25 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
+var EventsGateway_1;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.EventsGateway = void 0;
 const websockets_1 = require("@nestjs/websockets");
+const common_1 = require("@nestjs/common");
 const socket_io_1 = require("socket.io");
-let EventsGateway = class EventsGateway {
+const ws_jwt_guard_1 = require("../auth/ws-jwt.guard");
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+    ? process.env.ALLOWED_ORIGINS.split(',')
+    : ['http://localhost:3000'];
+let EventsGateway = EventsGateway_1 = class EventsGateway {
+    constructor() {
+        this.logger = new common_1.Logger(EventsGateway_1.name);
+    }
     handleConnection(client) {
-        console.log(`Client connected: ${client.id}`);
+        this.logger.log(`Client connected: ${client.id}`);
     }
     handleDisconnect(client) {
-        console.log(`Client disconnected: ${client.id}`);
+        this.logger.log(`Client disconnected: ${client.id}`);
     }
     emitNewRequest(song) {
         this.server.emit('new_request', song);
@@ -43,6 +52,9 @@ let EventsGateway = class EventsGateway {
     emitResetTable(tableNumber) {
         this.server.emit('reset_table', { tableNumber });
     }
+    handlePlaybackProgress(client, data) {
+        this.server.emit('playback_progress', data);
+    }
     emitTablesUpdate() {
         this.server.emit('tables_updated');
     }
@@ -57,26 +69,28 @@ __decorate([
 ], EventsGateway.prototype, "server", void 0);
 __decorate([
     (0, websockets_1.SubscribeMessage)('skip_song'),
+    (0, common_1.UseGuards)(ws_jwt_guard_1.WsJwtGuard),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [socket_io_1.Socket, Object]),
     __metadata("design:returntype", void 0)
 ], EventsGateway.prototype, "handleSkipSong", null);
 __decorate([
     (0, websockets_1.SubscribeMessage)('pause_song'),
+    (0, common_1.UseGuards)(ws_jwt_guard_1.WsJwtGuard),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [socket_io_1.Socket, Object]),
     __metadata("design:returntype", void 0)
 ], EventsGateway.prototype, "handlePauseSong", null);
-exports.EventsGateway = EventsGateway = __decorate([
+__decorate([
+    (0, websockets_1.SubscribeMessage)('playback_progress'),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [socket_io_1.Socket, Object]),
+    __metadata("design:returntype", void 0)
+], EventsGateway.prototype, "handlePlaybackProgress", null);
+exports.EventsGateway = EventsGateway = EventsGateway_1 = __decorate([
     (0, websockets_1.WebSocketGateway)({
         cors: {
-            origin: [
-                'http://localhost:3000',
-                'https://l4valink-production.up.railway.app',
-                'https://emilianipizzas.com',
-                'https://www.emilianipizzas.com',
-                'http://emilianipizzas.com',
-            ],
+            origin: allowedOrigins,
             credentials: true,
         },
     })

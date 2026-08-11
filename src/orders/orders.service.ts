@@ -1,10 +1,13 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import { calculateOrderPrice } from './pricing.utils';
 import { PrinterService } from '../services/printer.service';
+import { CreateOrderDto } from './dto/create-order.dto';
 
 @Injectable()
 export class OrdersService {
+    private readonly logger = new Logger(OrdersService.name);
+
     constructor(
         private prisma: PrismaService,
         private printerService: PrinterService
@@ -129,21 +132,75 @@ export class OrdersService {
             .slice(0, 5);
     }
 
-    async createOrder(data: { tableNumber: number; userName?: string; items: any[] }) {
-        const totalPrice = calculateOrderPrice(data.items);
+    async createOrder(data: CreateOrderDto) {
+        // Consultas de precios en paralelo para responder más rápido
+        const [menuItems, promotions] = await Promise.all([
+            this.prisma.menuItem.findMany({
+                select: { name: true, price: true },
+            }),
+            this.prisma.promotion.findMany({
+                where: { isActive: true },
+                select: { title: true, price: true },
+            }),
+        ]);
+
+        const menuPriceMap: Record<string, number> = {};
+        for (const item of menuItems) {
+            menuPriceMap[item.name] = item.price;
+        }
+
+        const promotionPriceMap: Record<string, number> = {};
+        for (const promo of promotions) {
+            if (promo.price != null) {
+                promotionPriceMap[promo.title] = promo.price;
+            }
+        }
+
+        const totalPrice = calculateOrderPrice(data.items, menuPriceMap, promotionPriceMap);
 
         const order = await this.prisma.order.create({
             data: {
                 tableNumber: data.tableNumber,
                 userName: data.userName,
-                items: data.items,
+                workerName: data.workerName,
+                items: data.items as any,
                 totalPrice: totalPrice,
                 status: 'PENDING',
-            } as any,
+            },
         });
 
-        // Print receipt
-        this.printerService.printOrder(order, data.items);
+        // Asegurar que exista la sesión de mesa (TableSession) y el registro (TableLog)
+        try {
+            const existingSession = await this.prisma.tableSession.findUnique({
+                where: { tableNumber: data.tableNumber },
+            });
+
+            if (!existingSession) {
+                const customerName = data.userName || `Mesa ${data.tableNumber}`;
+                await this.prisma.tableSession.create({
+                    data: {
+                        tableNumber: data.tableNumber,
+                        userName: customerName,
+                    },
+                });
+
+                await this.prisma.tableLog.create({
+                    data: {
+                        tableNumber: data.tableNumber,
+                        customerName: customerName,
+                        openedBy: 'Order',
+                    },
+                });
+            }
+        } catch (e) {
+            this.logger.error('Error creating table session on order', e);
+        }
+
+        // Imprimir en segundo plano: NO bloquear la respuesta al cliente.
+        // La impresora de red puede tardar segundos (o no responder).
+        this.printerService.printOrder(order, data.items).catch((error) => {
+            this.logger.error('Failed to print order', error);
+        });
 
         return order;
     }

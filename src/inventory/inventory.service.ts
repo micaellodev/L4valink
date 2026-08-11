@@ -47,8 +47,7 @@ export class InventoryService {
     ) {
         const day = new Date(date);
 
-        // Upsert each entry
-        const results = await Promise.all(
+        return this.prisma.$transaction(
             entries.map(entry =>
                 this.prisma.dailyInventoryEntry.upsert({
                     where: { productId_date: { productId: entry.productId, date: day } },
@@ -68,7 +67,5 @@ export class InventoryService {
                 }),
             ),
         );
-
-        return results;
     }
 }

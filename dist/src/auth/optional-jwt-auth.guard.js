@@ -10,11 +10,11 @@ exports.OptionalJwtAuthGuard = void 0;
 const common_1 = require("@nestjs/common");
 const passport_1 = require("@nestjs/passport");
 let OptionalJwtAuthGuard = class OptionalJwtAuthGuard extends (0, passport_1.AuthGuard)('jwt') {
-    handleRequest(err, user, info) {
-        if (err || !user) {
-            return null;
+    handleRequest(err, user) {
+        if (err) {
+            throw err;
         }
-        return user;
+        return user || null;
     }
 };
 exports.OptionalJwtAuthGuard = OptionalJwtAuthGuard;

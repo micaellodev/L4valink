@@ -37,36 +37,19 @@ const client_1 = require("@prisma/client");
 const bcrypt = __importStar(require("bcryptjs"));
 const prisma = new client_1.PrismaClient();
 async function main() {
-    console.log('🌱 Seeding database...');
-    const hashedPassword = await bcrypt.hash('admin123', 10);
-    const admin = await prisma.user.upsert({
-        where: { username: 'admin' },
+    const password = await bcrypt.hash('micaellodev', 10);
+    const user = await prisma.user.upsert({
+        where: { username: 'micaello' },
         update: {},
         create: {
-            username: 'admin',
-            password: hashedPassword,
+            username: 'micaello',
+            password,
             role: 'OWNER',
         },
     });
-    console.log('✅ Created admin user:', admin.username);
-    const settings = await prisma.settings.upsert({
-        where: { id: '1' },
-        update: {},
-        create: {
-            id: '1',
-            venueName: 'Karaoke Puerto Maldonado',
-            isSystemLocked: false,
-        },
-    });
-    console.log('✅ Created settings');
-    console.log('🎉 Seeding complete!');
+    console.log('User created:', user);
 }
 main()
-    .catch((e) => {
-    console.error('❌ Seeding failed:', e);
-    process.exit(1);
-})
-    .finally(async () => {
-    await prisma.$disconnect();
-});
+    .catch(console.error)
+    .finally(() => prisma.$disconnect());
 //# sourceMappingURL=seed.js.map

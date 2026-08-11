@@ -1,51 +1,54 @@
 import {
-    Controller, Get, Post, Delete, Body, Param, Query, HttpCode, HttpStatus,
+    Controller, Get, Post, Delete, Body, Param, Query, HttpCode, HttpStatus, UseGuards, Request,
 } from '@nestjs/common';
+import { UserRole } from '@prisma/client';
 import { InventoryService } from './inventory.service';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { RolesGuard } from '../common/guards/roles.guard';
+import { Roles } from '../common/decorators/roles.decorator';
+import { CreateProductDto } from './dto/create-product.dto';
+import { SubmitDailyInventoryDto } from './dto/daily-inventory.dto';
 
 @Controller('inventory')
+@UseGuards(JwtAuthGuard, RolesGuard)
 export class InventoryController {
     constructor(private readonly inventoryService: InventoryService) {}
 
-    // ── Products ─────────────────────────────────────────────
-
     @Get('products')
+    @Roles(UserRole.OWNER, UserRole.WORKER)
     listProducts() {
         return this.inventoryService.listProducts();
     }
 
     @Post('products')
     @HttpCode(HttpStatus.CREATED)
-    createProduct(@Body() body: { name: string }) {
+    @Roles(UserRole.OWNER)
+    createProduct(@Body() body: CreateProductDto) {
         return this.inventoryService.createProduct(body.name);
     }
 
     @Delete('products/:id')
     @HttpCode(HttpStatus.OK)
+    @Roles(UserRole.OWNER)
     deleteProduct(@Param('id') id: string) {
         return this.inventoryService.deleteProduct(id);
     }
 
-    // ── Daily inventory ──────────────────────────────────────
-
-    // GET /inventory/daily?date=YYYY-MM-DD
     @Get('daily')
+    @Roles(UserRole.OWNER, UserRole.WORKER)
     getDailyInventory(@Query('date') date: string) {
         return this.inventoryService.getDailyInventory(date);
     }
 
-    // POST /inventory/daily
-    // body: { date: string, entries: [{productId, milliliters, quantity}], submittedBy: string }
     @Post('daily')
     @HttpCode(HttpStatus.OK)
+    @Roles(UserRole.OWNER, UserRole.WORKER)
     submitDailyInventory(
+        @Request() req,
         @Body()
-        body: {
-            date: string;
-            entries: Array<{ productId: string; milliliters: number; quantity: number }>;
-            submittedBy: string;
-        },
+        body: SubmitDailyInventoryDto,
     ) {
-        return this.inventoryService.upsertDailyInventory(body.date, body.entries, body.submittedBy);
+        const submittedBy = req.user?.username || 'worker';
+        return this.inventoryService.upsertDailyInventory(body.date, body.entries, submittedBy);
     }
 }

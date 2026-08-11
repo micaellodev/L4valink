@@ -8,50 +8,102 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
+var OrdersService_1;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.OrdersService = void 0;
 const common_1 = require("@nestjs/common");
 const prisma_service_1 = require("../prisma.service");
 const pricing_utils_1 = require("./pricing.utils");
 const printer_service_1 = require("../services/printer.service");
-let OrdersService = class OrdersService {
+let OrdersService = OrdersService_1 = class OrdersService {
     constructor(prisma, printerService) {
         this.prisma = prisma;
         this.printerService = printerService;
+        this.logger = new common_1.Logger(OrdersService_1.name);
     }
     async getSalesLog(filter) {
-        const where = {
-            status: 'COMPLETED',
-        };
-        if (filter.startDate) {
-            where.createdAt = { ...where.createdAt, gte: filter.startDate };
+        let dateCondition = undefined;
+        if (filter.startDate || filter.endDate) {
+            const logWhere = {};
+            if (filter.startDate)
+                logWhere.openedAt = { gte: filter.startDate };
+            if (filter.endDate) {
+                const endOfDay = new Date(filter.endDate);
+                endOfDay.setUTCHours(23, 59, 59, 999);
+                logWhere.openedAt = { ...logWhere.openedAt, lte: endOfDay };
+            }
+            if (filter.tableNumber)
+                logWhere.tableNumber = filter.tableNumber;
+            const tableLogs = await this.prisma.tableLog.findMany({
+                where: logWhere,
+                select: { tableNumber: true, openedAt: true, closedAt: true }
+            });
+            if (tableLogs.length === 0)
+                return [];
+            const sessionORs = tableLogs.map(log => ({
+                tableNumber: log.tableNumber,
+                createdAt: {
+                    gte: log.openedAt,
+                    lte: log.closedAt || new Date()
+                }
+            }));
+            dateCondition = { OR: sessionORs };
         }
-        if (filter.endDate) {
-            where.createdAt = { ...where.createdAt, lte: filter.endDate };
+        else if (filter.tableNumber) {
+            dateCondition = { tableNumber: filter.tableNumber };
         }
-        if (filter.tableNumber) {
-            where.tableNumber = filter.tableNumber;
+        const andConditions = [{ status: { in: ['COMPLETED', 'CLOSED'] } }];
+        if (dateCondition) {
+            andConditions.push(dateCondition);
         }
         if (filter.sellerName) {
-            where.userName = { contains: filter.sellerName, mode: 'insensitive' };
+            andConditions.push({
+                OR: [
+                    { userName: { contains: filter.sellerName, mode: 'insensitive' } },
+                    { workerName: { contains: filter.sellerName, mode: 'insensitive' } }
+                ]
+            });
         }
+        const finalWhere = { AND: andConditions };
         return this.prisma.order.findMany({
-            where,
+            where: finalWhere,
             orderBy: { createdAt: 'desc' },
         });
     }
     async getTopBeverages(startDate, endDate) {
-        const where = {
-            status: 'COMPLETED',
-        };
-        if (startDate) {
-            where.createdAt = { ...where.createdAt, gte: startDate };
+        let dateCondition = undefined;
+        if (startDate || endDate) {
+            const logWhere = {};
+            if (startDate)
+                logWhere.openedAt = { gte: startDate };
+            if (endDate) {
+                const endOfDay = new Date(endDate);
+                endOfDay.setUTCHours(23, 59, 59, 999);
+                logWhere.openedAt = { ...logWhere.openedAt, lte: endOfDay };
+            }
+            const tableLogs = await this.prisma.tableLog.findMany({
+                where: logWhere,
+                select: { tableNumber: true, openedAt: true, closedAt: true }
+            });
+            if (tableLogs.length === 0)
+                return [];
+            const sessionORs = tableLogs.map(log => ({
+                tableNumber: log.tableNumber,
+                createdAt: {
+                    gte: log.openedAt,
+                    lte: log.closedAt || new Date()
+                }
+            }));
+            dateCondition = { OR: sessionORs };
         }
-        if (endDate) {
-            where.createdAt = { ...where.createdAt, lte: endDate };
+        const finalWhere = {
+            status: { in: ['COMPLETED', 'CLOSED'] }
+        };
+        if (dateCondition) {
+            finalWhere.AND = [dateCondition];
         }
         const orders = await this.prisma.order.findMany({
-            where,
+            where: finalWhere,
             select: { items: true },
         });
         const itemCounts = new Map();
@@ -70,17 +122,63 @@ let OrdersService = class OrdersService {
             .slice(0, 5);
     }
     async createOrder(data) {
-        const totalPrice = (0, pricing_utils_1.calculateOrderPrice)(data.items);
+        const [menuItems, promotions] = await Promise.all([
+            this.prisma.menuItem.findMany({
+                select: { name: true, price: true },
+            }),
+            this.prisma.promotion.findMany({
+                where: { isActive: true },
+                select: { title: true, price: true },
+            }),
+        ]);
+        const menuPriceMap = {};
+        for (const item of menuItems) {
+            menuPriceMap[item.name] = item.price;
+        }
+        const promotionPriceMap = {};
+        for (const promo of promotions) {
+            if (promo.price != null) {
+                promotionPriceMap[promo.title] = promo.price;
+            }
+        }
+        const totalPrice = (0, pricing_utils_1.calculateOrderPrice)(data.items, menuPriceMap, promotionPriceMap);
         const order = await this.prisma.order.create({
             data: {
                 tableNumber: data.tableNumber,
                 userName: data.userName,
+                workerName: data.workerName,
                 items: data.items,
                 totalPrice: totalPrice,
                 status: 'PENDING',
             },
         });
-        this.printerService.printOrder(order, data.items);
+        try {
+            const existingSession = await this.prisma.tableSession.findUnique({
+                where: { tableNumber: data.tableNumber },
+            });
+            if (!existingSession) {
+                const customerName = data.userName || `Mesa ${data.tableNumber}`;
+                await this.prisma.tableSession.create({
+                    data: {
+                        tableNumber: data.tableNumber,
+                        userName: customerName,
+                    },
+                });
+                await this.prisma.tableLog.create({
+                    data: {
+                        tableNumber: data.tableNumber,
+                        customerName: customerName,
+                        openedBy: 'Order',
+                    },
+                });
+            }
+        }
+        catch (e) {
+            this.logger.error('Error creating table session on order', e);
+        }
+        this.printerService.printOrder(order, data.items).catch((error) => {
+            this.logger.error('Failed to print order', error);
+        });
         return order;
     }
     async getOrders() {
@@ -158,7 +256,7 @@ let OrdersService = class OrdersService {
     }
 };
 exports.OrdersService = OrdersService;
-exports.OrdersService = OrdersService = __decorate([
+exports.OrdersService = OrdersService = OrdersService_1 = __decorate([
     (0, common_1.Injectable)(),
     __metadata("design:paramtypes", [prisma_service_1.PrismaService,
         printer_service_1.PrinterService])

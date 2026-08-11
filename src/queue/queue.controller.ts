@@ -1,12 +1,21 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, UseGuards, Request, Query } from '@nestjs/common';
+import { UserRole } from '@prisma/client';
 import { QueueService } from './queue.service';
 import { OrdersService } from '../orders/orders.service';
 import { EventsGateway } from '../gateway/events.gateway';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-
+import { RolesGuard } from '../common/guards/roles.guard';
+import { Roles } from '../common/decorators/roles.decorator';
+import { Public } from '../common/decorators/public.decorator';
 import { YouTubeService } from '../youtube/youtube.service';
+import { RequestSongDto } from './dto/request-song.dto';
+import { AddDirectDto } from './dto/add-direct.dto';
+import { ReorderQueueDto } from './dto/reorder-queue.dto';
+import { JoinTableDto } from './dto/join-table.dto';
+import { ToggleSettingDto } from './dto/toggle-setting.dto';
 
 @Controller('queue')
+@UseGuards(JwtAuthGuard, RolesGuard)
 export class QueueController {
     constructor(
         private queueService: QueueService,
@@ -16,34 +25,16 @@ export class QueueController {
     ) { }
 
     @Post('request')
-    async requestSong(@Body() body: {
-        youtubeId: string;
-        title: string;
-        channelTitle: string;
-        duration: string;
-        requestedByTable: number;
-        requestedBy?: string;
-        comments?: string;
-    }) {
-        try {
-            console.log('Received request body:', body);
-            const song = await this.queueService.requestSong(body);
-            this.eventsGateway.emitNewRequest(song);
-            return song;
-        } catch (error) {
-            console.error('Error requesting song:', error);
-            throw error;
-        }
+    @Public()
+    async requestSong(@Body() body: RequestSongDto) {
+        const song = await this.queueService.requestSong(body);
+        this.eventsGateway.emitNewRequest(song);
+        return song;
     }
 
     @Post('add')
-    @UseGuards(JwtAuthGuard)
-    async addSongDirectly(@Body() body: {
-        youtubeId: string;
-        title: string;
-        channelTitle: string;
-        duration: string;
-    }, @Request() req) {
+    @Roles(UserRole.OWNER, UserRole.WORKER)
+    async addSongDirectly(@Body() body: AddDirectDto, @Request() req) {
         const song = await this.queueService.addDirect({
             ...body,
             addedBy: req.user.username || 'Admin'
@@ -53,6 +44,7 @@ export class QueueController {
     }
 
     @Patch('approve/:id')
+    @Roles(UserRole.OWNER, UserRole.WORKER)
     async approveSong(@Param('id') id: string) {
         const song = await this.queueService.approveSong(id);
         this.eventsGateway.emitQueueUpdated();
@@ -60,6 +52,7 @@ export class QueueController {
     }
 
     @Patch('reject/:id')
+    @Roles(UserRole.OWNER, UserRole.WORKER)
     async rejectSong(@Param('id') id: string) {
         const song = await this.queueService.rejectSong(id);
         this.eventsGateway.emitQueueUpdated();
@@ -67,6 +60,7 @@ export class QueueController {
     }
 
     @Delete(':id')
+    @Roles(UserRole.OWNER, UserRole.WORKER)
     async deleteSong(@Param('id') id: string) {
         const song = await this.queueService.deleteSong(id);
         this.eventsGateway.emitQueueUpdated();
@@ -74,22 +68,24 @@ export class QueueController {
     }
 
     @Post('playback/pause')
+    @Roles(UserRole.OWNER, UserRole.WORKER)
     async pausePlayback() {
         this.eventsGateway.emitPauseSong();
         return { success: true };
     }
 
     @Post('playback/resume')
+    @Roles(UserRole.OWNER, UserRole.WORKER)
     async resumePlayback() {
         this.eventsGateway.emitResumeSong();
         return { success: true };
     }
 
     @Post('table/:id/reset')
-    @UseGuards(JwtAuthGuard)
+    @Roles(UserRole.OWNER, UserRole.WORKER)
     async resetTable(@Param('id') id: string, @Request() req) {
         const tableNumber = parseInt(id);
-        const closedBy = req.user.username; // Get username from JWT
+        const closedBy = req.user.username;
         await this.queueService.resetTable(tableNumber, closedBy);
         await this.ordersService.closeTable(tableNumber);
         this.eventsGateway.emitResetTable(tableNumber);
@@ -97,26 +93,31 @@ export class QueueController {
     }
 
     @Get('stats')
+    @Public()
     async getStats() {
         return this.queueService.getStats();
     }
 
     @Get('stats/tables')
+    @Roles(UserRole.OWNER, UserRole.WORKER)
     async getTableLogs() {
         return this.queueService.getTableLogs();
     }
 
     @Get()
+    @Public()
     async getQueue() {
         return this.queueService.getQueue();
     }
 
     @Get('recover')
+    @Public()
     async recover() {
         return this.queueService.recover();
     }
 
     @Post('play/:id')
+    @Public()
     async playSong(@Param('id') id: string) {
         const song = await this.queueService.playSong(id);
         this.eventsGateway.emitQueueUpdated();
@@ -124,6 +125,7 @@ export class QueueController {
     }
 
     @Post('next')
+    @Public()
     async completeSong(@Body() body: { currentId: string }) {
         const result = await this.queueService.completeSong(body.currentId);
         this.eventsGateway.emitPlayNext(result.nextSong);
@@ -132,61 +134,77 @@ export class QueueController {
     }
 
     @Patch('reorder')
-    async reorderQueue(@Body() body: { items: { id: string; order: number }[] }) {
+    @Roles(UserRole.OWNER, UserRole.WORKER)
+    async reorderQueue(@Body() body: ReorderQueueDto) {
         const result = await this.queueService.reorderQueue(body.items);
         this.eventsGateway.emitQueueUpdated();
         return result;
     }
 
-    // Table Session Endpoints
-
     @Post('table/join')
-    async joinTable(@Body() body: { tableNumber: number; userName: string }) {
-        // Since this is public, we don't have a logged-in user.
-        // The service defaults openedBy to 'Customer'.
+    @Public()
+    async joinTable(@Body() body: JoinTableDto) {
         const session = await this.queueService.joinTable(body.tableNumber, body.userName);
-        this.eventsGateway.emitTablesUpdate(); // Notify admins
+        this.eventsGateway.emitTablesUpdate();
         return session;
     }
 
     @Get('table/:id/session')
+    @Public()
     async getTableSession(@Param('id') id: string) {
         const tableNumber = parseInt(id);
         const session = await this.queueService.getTableSession(tableNumber);
-        return session || { userName: null }; // Return null object if no session
+        return session || { userName: null };
     }
 
     @Get('tables')
+    @Roles(UserRole.OWNER, UserRole.WORKER)
     async getTables() {
         return this.queueService.getActiveTables();
     }
 
     @Get('timer')
+    @Public()
     async getTimerEnabled() {
         return { enabled: this.queueService.getTimerEnabled() };
     }
 
     @Post('timer')
-    async setTimerEnabled(@Body() body: { enabled: boolean }) {
+    @Roles(UserRole.OWNER, UserRole.WORKER)
+    async setTimerEnabled(@Body() body: ToggleSettingDto) {
         const enabled = this.queueService.setTimerEnabled(body.enabled);
         this.eventsGateway.emitTimerUpdate(enabled);
         return { enabled };
     }
 
     @Get('autoplay')
+    @Public()
     async getAutoplayEnabled() {
         return { enabled: this.queueService.getAutoplayEnabled() };
     }
 
     @Post('autoplay')
-    async setAutoplayEnabled(@Body() body: { enabled: boolean }) {
+    @Roles(UserRole.OWNER, UserRole.WORKER)
+    async setAutoplayEnabled(@Body() body: ToggleSettingDto) {
         const enabled = this.queueService.setAutoplayEnabled(body.enabled);
-        this.eventsGateway.emitQueueUpdated(); // To notify UI to update switch state
+        this.eventsGateway.emitQueueUpdated();
         return { enabled };
     }
 
     @Get('autoplay-next/:id')
+    @Public()
     async getAutoplayNext(@Param('id') id: string) {
         return this.youtubeService.getAutoplayNext(id);
+    }
+
+    @Post('autoplay-add')
+    @Public()
+    async addAutoplaySong(@Body() body: AddDirectDto) {
+        const song = await this.queueService.addDirect({
+            ...body,
+            addedBy: 'Autoplay'
+        });
+        this.eventsGateway.emitQueueUpdated();
+        return song;
     }
 }

@@ -1,0 +1,5 @@
+[test]
+coverage = false
+
+[test.exclude]
+patterns = ["dist/**", "node_modules/**"]

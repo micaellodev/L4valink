@@ -1,108 +1,88 @@
-// Pricing utility for calculating order totals with promotion logic
+// Pricing utility for calculating order totals
+// Uses menu prices from the database, falls back to hardcoded for known cocktails
 
-// Cocktail categories
+// Cocktail categories (fallback when menu price not available)
 const CLASICOS = [
-    'Mojito',
-    'Chilcano',
-    'Laguna Azul',
-    'Orgasmo',
-    'Tinto de Verano',
-    'Piña Colada',
-    'Cuba Libre',
-    'Machupicchu',
+    'Mojito', 'Chilcano', 'Laguna Azul', 'Orgasmo',
+    'Tinto de Verano', 'Piña Colada', 'Cuba Libre', 'Machupicchu',
 ];
 
 const DE_AUTOR = [
-    'Margañaña',
-    'Biffer Pink',
-    'Tentacione Emiliani',
-    'Gaviota',
-    'Resina Sagrada',
-    'Espíritu Antiguo',
+    'Margañaña', 'Biffer Pink', 'Tentacione Emiliani',
+    'Gaviota', 'Resina Sagrada', 'Espíritu Antiguo',
 ];
 
-const CERVEZAS = [
-    'Pilsen',
-];
+const CERVEZAS = ['Pilsen'];
 
-// Pricing constants
-const PRICES = {
-    CLASICOS: {
-        UNIT: 20,
-        PROMO: 35, // 2x35
-    },
-    DE_AUTOR: {
-        UNIT: 25,
-        PROMO: 40, // 2x40 (updated from 50 based on carta page)
-    },
-    CERVEZAS: {
-        UNIT: 10,
-    }
+const FALLBACK_PRICES: Record<string, number> = {
+    CLASICOS: 20,
+    DE_AUTOR: 25,
+    CERVEZAS: 10,
 };
 
-/**
- * Determines the category of a cocktail or drink
- */
-function getItemCategory(name: string): 'CLASICOS' | 'DE_AUTOR' | 'CERVEZAS' | null {
-    if (CLASICOS.includes(name)) return 'CLASICOS';
-    if (DE_AUTOR.includes(name)) return 'DE_AUTOR';
-    if (CERVEZAS.includes(name)) return 'CERVEZAS';
+function getFallbackPrice(name: string): number | null {
+    const baseName = name.split(' -')[0].trim();
+    if (CLASICOS.includes(baseName)) return FALLBACK_PRICES.CLASICOS;
+    if (DE_AUTOR.includes(baseName)) return FALLBACK_PRICES.DE_AUTOR;
+    if (CERVEZAS.includes(baseName)) return FALLBACK_PRICES.CERVEZAS;
     return null;
 }
 
 /**
- * Calculates the price for a specific quantity of cocktails
- * Applies promotion logic: every 2 units = promo price, remaining units at unit price
+ * Calculates the total price for an order.
+ *
+ * Logic:
+ *  - Items matching a promotion title → use the promotion's fixed price
+ *    (e.g. "2 Cócteles por S/ 35 (...)" → S/ 35)
+ *  - Items with a known menu price (passed via menuPriceMap) → quantity × price
+ *  - Fallback to hardcoded cocktail prices
+ *  - Unknown items → 0
  */
-function calculateCategoryPrice(quantity: number, unitPrice: number, promoPrice?: number): number {
-    if (!promoPrice) {
-        return quantity * unitPrice;
-    }
-    const promoSets = Math.floor(quantity / 2);
-    const remainingUnits = quantity % 2;
-
-    return (promoSets * promoPrice) + (remainingUnits * unitPrice);
-}
-
-/**
- * Calculates the total price for an order
- * @param items Array of { name: string, quantity: number }
- * @returns Total price in soles
- */
-export function calculateOrderPrice(items: Array<{ name: string; quantity: number }>): number {
-    let clasicosTotal = 0;
-    let deAutorTotal = 0;
-    let cervezasTotal = 0;
+export function calculateOrderPrice(
+    items: Array<{ name: string; quantity: number }>,
+    menuPriceMap?: Record<string, number>,
+    promotionPriceMap?: Record<string, number>,
+): number {
+    let total = 0;
 
     for (const item of items) {
-        const category = getItemCategory(item.name);
+        const name = item.name.trim();
+        const qty = item.quantity || 0;
 
-        if (category === 'CLASICOS') {
-            clasicosTotal += item.quantity;
-        } else if (category === 'DE_AUTOR') {
-            deAutorTotal += item.quantity;
-        } else if (category === 'CERVEZAS') {
-            cervezasTotal += item.quantity;
+        // 1. Check if the item name starts with a promotion title
+        if (promotionPriceMap) {
+            for (const [promoTitle, promoPrice] of Object.entries(promotionPriceMap)) {
+                if (name.startsWith(promoTitle + ' (') || name === promoTitle) {
+                    total += promoPrice * qty;
+                    break;
+                }
+            }
+            // If matched a promo, skip further price lookup
+            if (total > 0 && Object.keys(promotionPriceMap).some(k => name.startsWith(k))) {
+                continue;
+            }
         }
-        // Items not in known categories are ignored
+
+        // 2. Check menu price map (exact match or base name match)
+        if (menuPriceMap) {
+            if (menuPriceMap[name] !== undefined) {
+                total += menuPriceMap[name] * qty;
+                continue;
+            }
+            // Try base name (strip variant suffix)
+            const baseName = name.split(' -')[0].trim();
+            if (menuPriceMap[baseName] !== undefined) {
+                total += menuPriceMap[baseName] * qty;
+                continue;
+            }
+        }
+
+        // 3. Fallback to hardcoded prices
+        const fallback = getFallbackPrice(name);
+        if (fallback !== null) {
+            total += fallback * qty;
+        }
     }
 
-    const clasicosPrice = calculateCategoryPrice(
-        clasicosTotal,
-        PRICES.CLASICOS.UNIT,
-        PRICES.CLASICOS.PROMO
-    );
-
-    const deAutorPrice = calculateCategoryPrice(
-        deAutorTotal,
-        PRICES.DE_AUTOR.UNIT,
-        PRICES.DE_AUTOR.PROMO
-    );
-
-    const cervezasPrice = calculateCategoryPrice(
-        cervezasTotal,
-        PRICES.CERVEZAS.UNIT
-    );
-
-    return clasicosPrice + deAutorPrice + cervezasPrice;
+    return total;
 }

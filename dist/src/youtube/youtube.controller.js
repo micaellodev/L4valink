@@ -16,6 +16,7 @@ exports.YouTubeController = void 0;
 const common_1 = require("@nestjs/common");
 const youtube_service_1 = require("./youtube.service");
 const optional_jwt_auth_guard_1 = require("../auth/optional-jwt-auth.guard");
+const public_decorator_1 = require("../common/decorators/public.decorator");
 let YouTubeController = class YouTubeController {
     constructor(youtubeService) {
         this.youtubeService = youtubeService;
@@ -25,10 +26,17 @@ let YouTubeController = class YouTubeController {
         const isUnrestricted = user && (user.role === 'WORKER' || user.role === 'OWNER');
         return this.youtubeService.search(query, isUnrestricted);
     }
+    async verify(videoId) {
+        return this.youtubeService.verifyVideo(videoId);
+    }
+    async refreshNodes() {
+        return this.youtubeService.refreshNodesFromPublicLists();
+    }
 };
 exports.YouTubeController = YouTubeController;
 __decorate([
     (0, common_1.Get)('search'),
+    (0, public_decorator_1.Public)(),
     (0, common_1.UseGuards)(optional_jwt_auth_guard_1.OptionalJwtAuthGuard),
     __param(0, (0, common_1.Query)('q')),
     __param(1, (0, common_1.Request)()),
@@ -36,6 +44,23 @@ __decorate([
     __metadata("design:paramtypes", [String, Object]),
     __metadata("design:returntype", Promise)
 ], YouTubeController.prototype, "search", null);
+__decorate([
+    (0, common_1.Get)('verify'),
+    (0, public_decorator_1.Public)(),
+    (0, common_1.UseGuards)(optional_jwt_auth_guard_1.OptionalJwtAuthGuard),
+    __param(0, (0, common_1.Query)('id')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String]),
+    __metadata("design:returntype", Promise)
+], YouTubeController.prototype, "verify", null);
+__decorate([
+    (0, common_1.Post)('refresh-nodes'),
+    (0, public_decorator_1.Public)(),
+    (0, common_1.UseGuards)(optional_jwt_auth_guard_1.OptionalJwtAuthGuard),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", Promise)
+], YouTubeController.prototype, "refreshNodes", null);
 exports.YouTubeController = YouTubeController = __decorate([
     (0, common_1.Controller)('youtube'),
     __metadata("design:paramtypes", [youtube_service_1.YouTubeService])

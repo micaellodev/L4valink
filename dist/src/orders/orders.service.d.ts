@@ -1,8 +1,10 @@
 import { PrismaService } from '../prisma.service';
 import { PrinterService } from '../services/printer.service';
+import { CreateOrderDto } from './dto/create-order.dto';
 export declare class OrdersService {
     private prisma;
     private printerService;
+    private readonly logger;
     constructor(prisma: PrismaService, printerService: PrinterService);
     getSalesLog(filter: {
         startDate?: Date;
@@ -13,6 +15,7 @@ export declare class OrdersService {
         id: string;
         tableNumber: number;
         userName: string | null;
+        workerName: string | null;
         items: import("@prisma/client/runtime/library").JsonValue;
         totalPrice: number;
         status: string;
@@ -22,14 +25,11 @@ export declare class OrdersService {
         name: string;
         count: number;
     }[]>;
-    createOrder(data: {
-        tableNumber: number;
-        userName?: string;
-        items: any[];
-    }): Promise<{
+    createOrder(data: CreateOrderDto): Promise<{
         id: string;
         tableNumber: number;
         userName: string | null;
+        workerName: string | null;
         items: import("@prisma/client/runtime/library").JsonValue;
         totalPrice: number;
         status: string;
@@ -39,6 +39,7 @@ export declare class OrdersService {
         id: string;
         tableNumber: number;
         userName: string | null;
+        workerName: string | null;
         items: import("@prisma/client/runtime/library").JsonValue;
         totalPrice: number;
         status: string;
@@ -49,6 +50,7 @@ export declare class OrdersService {
         id: string;
         tableNumber: number;
         userName: string | null;
+        workerName: string | null;
         items: import("@prisma/client/runtime/library").JsonValue;
         totalPrice: number;
         status: string;
@@ -58,6 +60,7 @@ export declare class OrdersService {
         id: string;
         tableNumber: number;
         userName: string | null;
+        workerName: string | null;
         items: import("@prisma/client/runtime/library").JsonValue;
         totalPrice: number;
         status: string;
@@ -67,6 +70,7 @@ export declare class OrdersService {
         id: string;
         tableNumber: number;
         userName: string | null;
+        workerName: string | null;
         items: import("@prisma/client/runtime/library").JsonValue;
         totalPrice: number;
         status: string;
@@ -78,6 +82,7 @@ export declare class OrdersService {
             id: string;
             tableNumber: number;
             userName: string | null;
+            workerName: string | null;
             items: import("@prisma/client/runtime/library").JsonValue;
             totalPrice: number;
             status: string;

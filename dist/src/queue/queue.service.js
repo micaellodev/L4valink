@@ -8,16 +8,19 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
+var QueueService_1;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.QueueService = void 0;
 const common_1 = require("@nestjs/common");
 const prisma_service_1 = require("../prisma.service");
 const events_gateway_1 = require("../gateway/events.gateway");
-let QueueService = class QueueService {
+let QueueService = QueueService_1 = class QueueService {
     constructor(prisma, eventsGateway) {
         this.prisma = prisma;
         this.eventsGateway = eventsGateway;
         this.timerEnabled = true;
+        this.autoplayEnabled = false;
+        this.logger = new common_1.Logger(QueueService_1.name);
     }
     getTimerEnabled() {
         return this.timerEnabled;
@@ -26,49 +29,68 @@ let QueueService = class QueueService {
         this.timerEnabled = enabled;
         return this.timerEnabled;
     }
+    getAutoplayEnabled() {
+        return this.autoplayEnabled;
+    }
+    setAutoplayEnabled(enabled) {
+        this.autoplayEnabled = enabled;
+        return this.autoplayEnabled;
+    }
     async requestSong(data) {
-        return this.prisma.queueItem.create({
-            data: {
-                ...data,
-                status: 'PENDING',
-                order: 0,
-            },
-        });
+        return this.prisma.$transaction(async (tx) => {
+            const maxOrder = await tx.queueItem.findFirst({
+                where: { status: 'PENDING' },
+                orderBy: { order: 'desc' },
+                select: { order: true },
+            });
+            const nextOrder = (maxOrder?.order ?? 0) + 1;
+            return tx.queueItem.create({
+                data: {
+                    ...data,
+                    status: 'PENDING',
+                    order: nextOrder,
+                },
+            });
+        }, { isolationLevel: 'Serializable' });
     }
     async addDirect(data) {
-        const maxOrder = await this.prisma.queueItem.findFirst({
-            where: { status: 'APPROVED' },
-            orderBy: { order: 'desc' },
-            select: { order: true },
-        });
-        const nextOrder = (maxOrder?.order ?? 0) + 1;
-        return this.prisma.queueItem.create({
-            data: {
-                youtubeId: data.youtubeId,
-                title: data.title,
-                channelTitle: data.channelTitle,
-                duration: data.duration,
-                requestedByTable: 0,
-                requestedBy: data.addedBy,
-                status: 'APPROVED',
-                order: nextOrder,
-            },
-        });
+        return this.prisma.$transaction(async (tx) => {
+            const maxOrder = await tx.queueItem.findFirst({
+                where: { status: 'APPROVED' },
+                orderBy: { order: 'desc' },
+                select: { order: true },
+            });
+            const nextOrder = (maxOrder?.order ?? 0) + 1;
+            return tx.queueItem.create({
+                data: {
+                    youtubeId: data.youtubeId,
+                    title: data.title,
+                    channelTitle: data.channelTitle,
+                    duration: data.duration,
+                    requestedByTable: 0,
+                    requestedBy: data.addedBy,
+                    status: 'APPROVED',
+                    order: nextOrder,
+                },
+            });
+        }, { isolationLevel: 'Serializable' });
     }
     async approveSong(id) {
-        const maxOrder = await this.prisma.queueItem.findFirst({
-            where: { status: 'APPROVED' },
-            orderBy: { order: 'desc' },
-            select: { order: true },
-        });
-        const nextOrder = (maxOrder?.order ?? 0) + 1;
-        return this.prisma.queueItem.update({
-            where: { id },
-            data: {
-                status: 'APPROVED',
-                order: nextOrder,
-            },
-        });
+        return this.prisma.$transaction(async (tx) => {
+            const maxOrder = await tx.queueItem.findFirst({
+                where: { status: 'APPROVED' },
+                orderBy: { order: 'desc' },
+                select: { order: true },
+            });
+            const nextOrder = (maxOrder?.order ?? 0) + 1;
+            return tx.queueItem.update({
+                where: { id },
+                data: {
+                    status: 'APPROVED',
+                    order: nextOrder,
+                },
+            });
+        }, { isolationLevel: 'Serializable' });
     }
     async rejectSong(id) {
         return this.prisma.queueItem.update({
@@ -82,16 +104,25 @@ let QueueService = class QueueService {
         });
     }
     async getQueue() {
-        const queue = await this.prisma.queueItem.findMany({
+        const products = await this.prisma.queueItem.findMany({
             where: {
                 status: {
                     in: ['PENDING', 'APPROVED', 'PLAYING'],
                 },
             },
-            orderBy: [
-                { status: 'asc' },
-                { order: 'asc' },
-            ],
+        });
+        const statusPriority = {
+            'PLAYING': 0,
+            'APPROVED': 1,
+            'PENDING': 2,
+            'FINISHED': 3,
+            'REJECTED': 4
+        };
+        const queue = products.sort((a, b) => {
+            if (statusPriority[a.status] !== statusPriority[b.status]) {
+                return statusPriority[a.status] - statusPriority[b.status];
+            }
+            return a.order - b.order;
         });
         return queue.map((item) => ({
             ...item,
@@ -113,7 +144,10 @@ let QueueService = class QueueService {
     }
     async playSong(id) {
         await this.prisma.queueItem.updateMany({
-            where: { status: 'PLAYING' },
+            where: {
+                status: 'PLAYING',
+                id: { not: id }
+            },
             data: { status: 'FINISHED', playedAt: new Date() },
         });
         return this.prisma.queueItem.update({
@@ -122,8 +156,8 @@ let QueueService = class QueueService {
         });
     }
     async completeSong(id) {
-        await this.prisma.queueItem.update({
-            where: { id },
+        await this.prisma.queueItem.updateMany({
+            where: { id, status: 'PLAYING' },
             data: {
                 status: 'FINISHED',
                 playedAt: new Date(),
@@ -136,11 +170,10 @@ let QueueService = class QueueService {
         return { nextSong };
     }
     async reorderQueue(items) {
-        const updates = items.map((item) => this.prisma.queueItem.update({
+        await this.prisma.$transaction(items.map((item) => this.prisma.queueItem.update({
             where: { id: item.id },
             data: { order: item.order },
-        }));
-        await Promise.all(updates);
+        })));
         return { success: true };
     }
     async getStats() {
@@ -174,15 +207,12 @@ let QueueService = class QueueService {
         };
     }
     async joinTable(tableNumber, userName) {
-        console.log(`[DEBUG] joinTable called with table=${tableNumber}, user=${userName}`);
         const existingSession = await this.prisma.tableSession.findUnique({
             where: { tableNumber },
         });
         if (existingSession) {
-            console.log(`[DEBUG] Session already exists for table ${tableNumber}:`, existingSession);
             return existingSession;
         }
-        console.log(`[DEBUG] Creating new session...`);
         const session = await this.prisma.tableSession.create({
             data: {
                 tableNumber,
@@ -196,7 +226,6 @@ let QueueService = class QueueService {
                 openedBy: 'Customer',
             },
         });
-        console.log(`[DEBUG] Session created:`, session);
         this.eventsGateway.emitTablesUpdate();
         return session;
     }
@@ -230,7 +259,7 @@ let QueueService = class QueueService {
             }
         }
         catch (e) {
-            console.error('Error logging table close:', e);
+            this.logger.error('Error logging table close', e);
         }
         try {
             await this.prisma.tableSession.delete({
@@ -238,6 +267,12 @@ let QueueService = class QueueService {
             });
         }
         catch (e) {
+        }
+        try {
+            this.eventsGateway.emitResetTable(tableNumber);
+        }
+        catch (e) {
+            this.logger.error('Error emitting reset_table event', e);
         }
         this.eventsGateway.emitTablesUpdate();
         return { success: true };
@@ -252,7 +287,7 @@ let QueueService = class QueueService {
     }
 };
 exports.QueueService = QueueService;
-exports.QueueService = QueueService = __decorate([
+exports.QueueService = QueueService = QueueService_1 = __decorate([
     (0, common_1.Injectable)(),
     __metadata("design:paramtypes", [prisma_service_1.PrismaService,
         events_gateway_1.EventsGateway])

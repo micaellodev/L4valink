@@ -14,10 +14,24 @@ var __param = (this && this.__param) || function (paramIndex, decorator) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.OrdersController = void 0;
 const common_1 = require("@nestjs/common");
+const client_1 = require("@prisma/client");
 const orders_service_1 = require("./orders.service");
+const orders_gateway_1 = require("./orders.gateway");
+const jwt_auth_guard_1 = require("../auth/jwt-auth.guard");
+const roles_guard_1 = require("../common/guards/roles.guard");
+const roles_decorator_1 = require("../common/decorators/roles.decorator");
+const public_decorator_1 = require("../common/decorators/public.decorator");
+const create_order_dto_1 = require("./dto/create-order.dto");
 let OrdersController = class OrdersController {
-    constructor(ordersService) {
+    constructor(ordersService, ordersGateway) {
         this.ordersService = ordersService;
+        this.ordersGateway = ordersGateway;
+    }
+    async createOrder(data) {
+        const order = await this.ordersService.createOrder(data);
+        this.ordersGateway.server.emit('order:new', order);
+        this.ordersGateway.server.emit('tables_updated');
+        return { success: true, order };
     }
     async getSalesLog(startDate, endDate, tableNumber, sellerName) {
         return this.ordersService.getSalesLog({
@@ -33,7 +47,16 @@ let OrdersController = class OrdersController {
 };
 exports.OrdersController = OrdersController;
 __decorate([
+    (0, common_1.Post)(),
+    (0, public_decorator_1.Public)(),
+    __param(0, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [create_order_dto_1.CreateOrderDto]),
+    __metadata("design:returntype", Promise)
+], OrdersController.prototype, "createOrder", null);
+__decorate([
     (0, common_1.Get)('sales'),
+    (0, roles_decorator_1.Roles)(client_1.UserRole.OWNER, client_1.UserRole.WORKER),
     __param(0, (0, common_1.Query)('startDate')),
     __param(1, (0, common_1.Query)('endDate')),
     __param(2, (0, common_1.Query)('tableNumber')),
@@ -44,6 +67,7 @@ __decorate([
 ], OrdersController.prototype, "getSalesLog", null);
 __decorate([
     (0, common_1.Get)('stats/top-beverages'),
+    (0, roles_decorator_1.Roles)(client_1.UserRole.OWNER, client_1.UserRole.WORKER),
     __param(0, (0, common_1.Query)('startDate')),
     __param(1, (0, common_1.Query)('endDate')),
     __metadata("design:type", Function),
@@ -52,6 +76,8 @@ __decorate([
 ], OrdersController.prototype, "getTopBeverages", null);
 exports.OrdersController = OrdersController = __decorate([
     (0, common_1.Controller)('orders'),
-    __metadata("design:paramtypes", [orders_service_1.OrdersService])
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard, roles_guard_1.RolesGuard),
+    __metadata("design:paramtypes", [orders_service_1.OrdersService,
+        orders_gateway_1.OrdersGateway])
 ], OrdersController);
 //# sourceMappingURL=orders.controller.js.map
