@@ -18,7 +18,7 @@ async function bootstrap() {
 
     const allowedOrigins = process.env.ALLOWED_ORIGINS
         ? process.env.ALLOWED_ORIGINS.split(',')
-        : ['http://localhost:3000'];
+        : ['https://emilianipizzas.com'];
 
     app.enableCors({
         origin: allowedOrigins,
